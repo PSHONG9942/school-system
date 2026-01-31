@@ -46,49 +46,44 @@ def load_data():
         return pd.DataFrame(data[1:], columns=data[0])
     return pd.DataFrame()
 
-# PDF 生成器 (防弹修复版)
+# --- PDF 生成器 (中文完美版) ---
 def generate_pdf(student_data):
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_font("Arial", size=12)
     
-    # 1. 处理标题 (把名字里的中文去掉，防止标题报错)
+    # ============================================
+    # 关键步骤：加载中文字体！
+    # 确保你已经把 NotoSans-Regular.ttf 上传到了 GitHub
+    # ============================================
+    # 参数说明：'NotoSans'是给字体起的名字，''是样式(默认)，后面是文件名，uni=True表示使用Unicode
+    pdf.add_font('NotoSans', '', 'NotoSans-Regular.ttf', uni=True)
+    
+    # 设置使用刚才加载的字体
+    pdf.set_font("NotoSans", size=12)
+    
+    # --- 1. 标题 ---
+    # 获取学生姓名，如果没有就显示 'Student'
     name = str(student_data.get('学生姓名', 'Student'))
-    # 强力清洗：只保留英文和数字，中文变问号
-    name_clean = name.encode('latin-1', 'replace').decode('latin-1')
     
-    pdf.set_font("Arial", 'B', 16)
-    pdf.cell(200, 10, txt=f"Student Profile: {name_clean}", ln=1, align='C')
-    pdf.ln(10)
+    pdf.set_font_size(16) # 设置标题字号
+    # 写入标题 (现在可以直接写中文了！)
+    pdf.cell(200, 10, txt=f"学生个人档案: {name}", ln=1, align='C')
+    pdf.ln(10) # 空一行
     
-    pdf.set_font("Arial", size=12)
+    # --- 2. 内容 ---
+    pdf.set_font_size(12) # 设置正文字号
     
-    # 2. 字段映射 (左边是Excel里的中文表头，右边是PDF显示的英文标签)
-    # 这样 FPDF 就不会因为看到中文字而崩溃了
-    field_map = {
-        '班级': 'Class',
-        '身份证/MyKid': 'ID/MyKid',
-        '性别': 'Gender',
-        '出生日期': 'Date of Birth',
-        '种族': 'Race',
-        '宗教': 'Religion',
-        '国籍': 'Nationality',
-        '家庭住址': 'Address',
-        '监护人电话': 'Phone'
-    }
+    # 需要打印的字段 (可以直接用中文表头了)
+    fields = ['班级', '身份证/MyKid', '性别', '出生日期', '种族', '宗教', '国籍', '家庭住址', '监护人电话']
     
-    for cn_key, en_label in field_map.items():
-        # 获取数据
-        value = str(student_data.get(cn_key, '-'))
+    for field in fields:
+        # 获取数据，如果为空就显示 '-'
+        value = str(student_data.get(field, '-'))
         
-        # 3. 强力清洗内容
-        # 如果内容是中文（比如“华裔”），会被替换成 '?'，防止报错
-        # (这只是暂时的，为了让功能先跑通)
-        value_clean = value.encode('latin-1', 'replace').decode('latin-1') 
+        # 写入 PDF (直接拼接，不需要之前的那些 encode/decode 清洗了)
+        pdf.cell(200, 10, txt=f"{field}: {value}", ln=1)
         
-        # 写入 PDF (使用英文标签)
-        pdf.cell(200, 10, txt=f"{en_label}: {value_clean}", ln=1)
-        
+    # 输出 PDF 文件数据
     return pdf.output(dest='S').encode('latin-1')
 
 # --- 4. 界面逻辑 ---
