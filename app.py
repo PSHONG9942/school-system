@@ -56,10 +56,10 @@ def generate_pdf(student_data):
     # 确保你已经把 NotoSans-Regular.ttf 上传到了 GitHub
     # ============================================
     # 参数说明：'NotoSans'是给字体起的名字，''是样式(默认)，后面是文件名，uni=True表示使用Unicode
-    pdf.add_font('NotoSans', '', 'NotoSans-Regular.ttf', uni=True)
+    pdf.add_font('NotoSansSC', '', 'NotoSansSC-Regular.ttf', uni=True)
     
     # 设置使用刚才加载的字体
-    pdf.set_font("NotoSans", size=12)
+    pdf.set_font("NotoSansSC", size=12)
     
     # --- 1. 标题 ---
     # 获取学生姓名，如果没有就显示 'Student'
