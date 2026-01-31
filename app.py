@@ -6,7 +6,7 @@ from fpdf import FPDF
 import datetime
 
 # --- 1. 页面配置 ---
-st.set_page_config(page_title="SJK(C) 旗舰校务系统", layout="wide", page_icon="🏫")
+st.set_page_config(page_title="木威培青华小校务系统", layout="wide", page_icon="🏫")
 
 # --- 2. 连接 Google Sheets ---
 @st.cache_resource
@@ -280,7 +280,7 @@ elif menu == "📅 每日点名":
                     st.balloons()
 
 # ==========================================
-# ➕ 功能 C: 录入新学生 (修复版)
+# ➕ 功能 C: 录入新学生 (修复版 + 新增离婚选项)
 # ==========================================
 elif menu == "➕ 录入新学生":
     st.title("📝 资料录入 / 修改")
@@ -289,7 +289,7 @@ elif menu == "➕ 录入新学生":
     with c1:
         st.info("💾 保存后表单【不会】自动清空。如需录入下一位，请点击右侧按钮。")
     with c2:
-        # 🟢 按钮绑定 on_click 回调，确保清空
+        # 保持之前的清空按钮逻辑
         st.button("🆕 新增学生 (清空)", type="secondary", use_container_width=True, on_click=clear_form_callback)
 
     with st.form("add_student_form"):
@@ -322,7 +322,8 @@ elif menu == "➕ 录入新学生":
             col_f1, col_f2 = st.columns(2)
             with col_f1:
                 father_name = st.text_input("父亲姓名", key="father_name")
-                father_job = st.selectbox("父亲职业", ["公务员", "私人界", "自雇", "无业/退休", "已故"], key="father_job")
+                # 🟢 修改点 1：加入了 "离婚"
+                father_job = st.selectbox("父亲职业", ["公务员", "私人界", "自雇", "无业/退休", "已故", "离婚"], key="father_job")
             with col_f2:
                 father_ic = st.text_input("父亲 IC", key="father_ic")
                 father_income = st.number_input("父亲月收入 (RM)", min_value=0, step=100, key="father_income")
@@ -332,7 +333,8 @@ elif menu == "➕ 录入新学生":
             col_m1, col_m2 = st.columns(2)
             with col_m1:
                 mother_name = st.text_input("母亲姓名", key="mother_name")
-                mother_job = st.selectbox("母亲职业", ["公务员", "私人界", "自雇", "家庭主妇", "已故"], key="mother_job")
+                # 🟢 修改点 2：加入了 "离婚"
+                mother_job = st.selectbox("母亲职业", ["公务员", "私人界", "自雇", "家庭主妇", "已故", "离婚"], key="mother_job")
             with col_m2:
                 mother_ic = st.text_input("母亲 IC", key="mother_ic")
                 mother_income = st.number_input("母亲月收入 (RM)", min_value=0, step=100, key="mother_income")
@@ -371,7 +373,6 @@ elif menu == "➕ 录入新学生":
                             st.success(f"✅ 新增成功：{name_en}")
                         
                         st.cache_data.clear()
-                        # 注意：保存后不清空，等待用户点击清空按钮
                         
                     except Exception as e:
                         st.error(f"发生错误: {e}")
