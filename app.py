@@ -99,12 +99,49 @@ with st.sidebar:
         st.cache_data.clear()
 
 # ==========================================
-# 📊 功能 A: 智能分班名册 + 编辑功能
+# 📊 功能 A: 智能分班名册 + 编辑功能 (修复版)
 # ==========================================
 if menu == "📊 学生列表":
     st.title("📚 分班学生名册")
     df = load_data()
     
+    # --- 🟢 定义回调函数：专门处理跳转和填表逻辑 ---
+    # 这个函数会在点击按钮的一瞬间运行，早于页面刷新
+    def edit_student_callback(row):
+        # 1. 切换菜单到录入页
+        st.session_state["menu_nav"] = "➕ 录入新学生"
+        
+        # 2. 填入所有资料
+        st.session_state['name_en'] = row['学生姓名']
+        st.session_state['name_cn'] = row['中文姓名']
+        st.session_state['cls'] = row['班级']
+        st.session_state['mykid'] = str(row['身份证/MyKid'])
+        st.session_state['dob'] = parse_date(row['出生日期'])
+        
+        # 性别处理 (确保和 Radio 选项完全一致)
+        # 如果你的 Excel 里存的是 "男"，这里就没问题
+        st.session_state['gender'] = row['性别'] 
+
+        st.session_state['race'] = row['种族']
+        st.session_state['religion'] = row['宗教']
+        st.session_state['nationality'] = row['国籍']
+        st.session_state['address'] = row['住址']
+        st.session_state['guardian_phone'] = str(row['监护人电话'])
+        
+        st.session_state['father_name'] = row['父亲姓名']
+        st.session_state['father_ic'] = str(row['父亲IC'])
+        st.session_state['father_job'] = row['父亲职业']
+        try: st.session_state['father_income'] = int(float(row['父亲收入']))
+        except: st.session_state['father_income'] = 0
+
+        st.session_state['mother_name'] = row['母亲姓名']
+        st.session_state['mother_ic'] = str(row['母亲IC'])
+        st.session_state['mother_job'] = row['母亲职业']
+        try: st.session_state['mother_income'] = int(float(row['母亲收入']))
+        except: st.session_state['mother_income'] = 0
+
+    # ---------------------------------------------
+
     if df.empty:
         st.warning("⚠️ 数据库为空。")
     else:
@@ -133,52 +170,24 @@ if menu == "📊 学生列表":
             m3.metric("👧 女生", f"{girls} 人")
             st.divider()
             
-            # --- 🌟 新增：修改资料功能 ---
+            # --- 🛠️ 修改资料功能 (修复报错的关键点) ---
             st.markdown("#### 🛠️ 修改资料")
-            # 制作一个下拉菜单，列出该班学生
             student_list = class_df['学生姓名'].tolist()
             student_to_edit = st.selectbox("选择要修改的学生:", ["(请选择)"] + student_list)
             
             if student_to_edit != "(请选择)":
-                if st.button(f"✏️ 编辑 {student_to_edit} 的资料", type="primary"):
-                    # 1. 找到这个学生的所有资料
-                    student_row = class_df[class_df['学生姓名'] == student_to_edit].iloc[0]
-                    
-                    # 2. 把资料填入 Session State (就像机器人帮你填好了表单)
-                    # 必须使用我们在 '录入页' 定义的 key
-                    st.session_state['name_en'] = student_row['学生姓名']
-                    st.session_state['name_cn'] = student_row['中文姓名']
-                    st.session_state['cls'] = student_row['班级']
-                    st.session_state['mykid'] = str(student_row['身份证/MyKid']) # 确保是字符串
-                    st.session_state['dob'] = parse_date(student_row['出生日期']) # 转换日期格式
-                    st.session_state['gender'] = student_row['性别'] + " (Lelaki)" if student_row['性别'] == "男" else student_row['性别'] + " (Perempuan)"
-                    # 简单的性别处理，如果之前存的是"男"，这里需要匹配 Radio 的选项 "男 (Lelaki)" 等
-                    # 为了简化，建议你的 Radio 选项和表格里存的一致。
-                    # 假设你表格存的是 "男" 或 "女"：
-                    st.session_state['gender'] = student_row['性别'] 
-
-                    st.session_state['race'] = student_row['种族']
-                    st.session_state['religion'] = student_row['宗教']
-                    st.session_state['nationality'] = student_row['国籍']
-                    st.session_state['address'] = student_row['住址']
-                    st.session_state['guardian_phone'] = str(student_row['监护人电话'])
-                    
-                    st.session_state['father_name'] = student_row['父亲姓名']
-                    st.session_state['father_ic'] = str(student_row['父亲IC'])
-                    st.session_state['father_job'] = student_row['父亲职业']
-                    # 处理收入数字
-                    try: st.session_state['father_income'] = int(float(student_row['父亲收入']))
-                    except: st.session_state['father_income'] = 0
-
-                    st.session_state['mother_name'] = student_row['母亲姓名']
-                    st.session_state['mother_ic'] = str(student_row['母亲IC'])
-                    st.session_state['mother_job'] = student_row['母亲职业']
-                    try: st.session_state['mother_income'] = int(float(student_row['母亲收入']))
-                    except: st.session_state['mother_income'] = 0
-
-                    # 3. 核心魔法：强制跳转到录入页
-                    st.session_state["menu_nav"] = "➕ 录入新学生"
-                    st.rerun()
+                # 1. 先把这一行数据找出来
+                student_row = class_df[class_df['学生姓名'] == student_to_edit].iloc[0]
+                
+                # 2. 🟢 按钮绑定 on_click 回调
+                # 注意：这里我们不再在 if 里写逻辑，而是把逻辑交给 edit_student_callback
+                st.button(
+                    f"✏️ 编辑 {student_to_edit} 的资料", 
+                    type="primary",
+                    on_click=edit_student_callback,  # 绑定函数
+                    args=(student_row,)              # 把学生资料传给函数
+                )
+                # 点击后，页面会自动刷新并跳转，且不会报错！
 
             st.divider()
             
