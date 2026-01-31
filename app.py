@@ -99,41 +99,31 @@ with st.sidebar:
         st.cache_data.clear()
 
 # ==========================================
-# 📊 功能 A: 智能分班名册 + 编辑功能 (修复版)
+# 📊 功能 A: 智能分班名册 + 编辑 + 打印
 # ==========================================
 if menu == "📊 学生列表":
     st.title("📚 分班学生名册")
     df = load_data()
     
-    # --- 🟢 定义回调函数：专门处理跳转和填表逻辑 ---
-    # 这个函数会在点击按钮的一瞬间运行，早于页面刷新
+    # --- 🟢 回调函数 (保持不变) ---
     def edit_student_callback(row):
-        # 1. 切换菜单到录入页
         st.session_state["menu_nav"] = "➕ 录入新学生"
-        
-        # 2. 填入所有资料
         st.session_state['name_en'] = row['学生姓名']
         st.session_state['name_cn'] = row['中文姓名']
         st.session_state['cls'] = row['班级']
         st.session_state['mykid'] = str(row['身份证/MyKid'])
         st.session_state['dob'] = parse_date(row['出生日期'])
-        
-        # 性别处理 (确保和 Radio 选项完全一致)
-        # 如果你的 Excel 里存的是 "男"，这里就没问题
         st.session_state['gender'] = row['性别'] 
-
         st.session_state['race'] = row['种族']
         st.session_state['religion'] = row['宗教']
         st.session_state['nationality'] = row['国籍']
         st.session_state['address'] = row['住址']
         st.session_state['guardian_phone'] = str(row['监护人电话'])
-        
         st.session_state['father_name'] = row['父亲姓名']
         st.session_state['father_ic'] = str(row['父亲IC'])
         st.session_state['father_job'] = row['父亲职业']
         try: st.session_state['father_income'] = int(float(row['父亲收入']))
         except: st.session_state['father_income'] = 0
-
         st.session_state['mother_name'] = row['母亲姓名']
         st.session_state['mother_ic'] = str(row['母亲IC'])
         st.session_state['mother_job'] = row['母亲职业']
@@ -170,24 +160,39 @@ if menu == "📊 学生列表":
             m3.metric("👧 女生", f"{girls} 人")
             st.divider()
             
-            # --- 🛠️ 修改资料功能 (修复报错的关键点) ---
-            st.markdown("#### 🛠️ 修改资料")
+            # --- 🛠️ 选中学生操作区 (编辑 + 打印) ---
+            st.markdown("#### 👤 学生操作 (编辑 / 打印)")
             student_list = class_df['学生姓名'].tolist()
-            student_to_edit = st.selectbox("选择要修改的学生:", ["(请选择)"] + student_list)
+            student_to_edit = st.selectbox("请选择一位学生:", ["(请选择)"] + student_list)
             
             if student_to_edit != "(请选择)":
-                # 1. 先把这一行数据找出来
+                # 获取该学生数据
                 student_row = class_df[class_df['学生姓名'] == student_to_edit].iloc[0]
                 
-                # 2. 🟢 按钮绑定 on_click 回调
-                # 注意：这里我们不再在 if 里写逻辑，而是把逻辑交给 edit_student_callback
-                st.button(
-                    f"✏️ 编辑 {student_to_edit} 的资料", 
-                    type="primary",
-                    on_click=edit_student_callback,  # 绑定函数
-                    args=(student_row,)              # 把学生资料传给函数
-                )
-                # 点击后，页面会自动刷新并跳转，且不会报错！
+                # ✨ 布局魔法：把两个按钮并排显示
+                btn_col1, btn_col2 = st.columns([1, 1])
+                
+                with btn_col1:
+                    # 🔴 按钮 1: 编辑 (跳去录入页)
+                    st.button(
+                        f"✏️ 修改资料", 
+                        type="primary",
+                        on_click=edit_student_callback,
+                        args=(student_row,),
+                        use_container_width=True
+                    )
+                
+                with btn_col2:
+                    # 🔵 按钮 2: 打印 (生成 PDF)
+                    # 只有当选中学生时才实时生成 PDF
+                    pdf_data = generate_pdf(student_row)
+                    st.download_button(
+                        label="📄 下载 PDF 档案",
+                        data=pdf_data,
+                        file_name=f"Profile_{student_to_edit}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
 
             st.divider()
             
