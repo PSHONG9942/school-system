@@ -29,14 +29,12 @@ def get_connection():
     client = gspread.authorize(creds)
     return client
 
-# 获取两个表格：学生表(sheet1) 和 出席表(attendance)
 try:
     client = get_connection()
     sheet = client.open_by_key("1yuqfbLmJ_IIFInB_XyKEula17Kyse6FGeqvZgh-Rn94").sheet1
-    # ⚠️ 确保你已经创建了名为 attendance 的分页
     att_sheet = client.open_by_key("1yuqfbLmJ_IIFInB_XyKEula17Kyse6FGeqvZgh-Rn94").worksheet("attendance")
 except Exception as e:
-    st.error(f"❌ 连接失败: {e}\n请检查是否在 Google Sheet新建了 'attendance' 分页！")
+    st.error(f"❌ 连接失败: {e}")
     st.stop()
 
 # --- 3. 辅助函数 ---
@@ -46,310 +44,289 @@ def load_data():
         return pd.DataFrame(data[1:], columns=data[0])
     return pd.DataFrame()
 
-# --- PDF 生成器 (中文完美版) ---
+# 日期转换辅助函数 (把字符串转回日期对象)
+def parse_date(date_str):
+    try:
+        return datetime.datetime.strptime(str(date_str), "%Y-%m-%d").date()
+    except:
+        return datetime.date.today() # 如果格式不对，默认今天
+
+# PDF 生成器
 def generate_pdf(student_data):
     pdf = FPDF()
     pdf.add_page()
-    
-    # ============================================
-    # 关键步骤：加载中文字体！
-    # 确保你已经把 NotoSans-Regular.ttf 上传到了 GitHub
-    # ============================================
-    # 参数说明：'NotoSans'是给字体起的名字，''是样式(默认)，后面是文件名，uni=True表示使用Unicode
     pdf.add_font('NotoSansSC', '', 'NotoSansSC-Regular.ttf', uni=True)
-    
-    # 设置使用刚才加载的字体
     pdf.set_font("NotoSansSC", size=12)
-    
-    # --- 1. 标题 ---
-    # 获取学生姓名，如果没有就显示 'Student'
     name = str(student_data.get('学生姓名', 'Student'))
-    
-    pdf.set_font_size(16) # 设置标题字号
-    # 写入标题 (现在可以直接写中文了！)
+    pdf.set_font_size(16)
     pdf.cell(200, 10, txt=f"学生个人档案: {name}", ln=1, align='C')
-    pdf.ln(10) # 空一行
-    
-    # --- 2. 内容 ---
-    pdf.set_font_size(12) # 设置正文字号
-    
-    # 需要打印的字段 (可以直接用中文表头了)
+    pdf.ln(10)
+    pdf.set_font_size(12)
     fields = ['班级', '身份证/MyKid', '性别', '出生日期', '种族', '宗教', '国籍', '家庭住址', '监护人电话']
-    
     for field in fields:
-        # 获取数据，如果为空就显示 '-'
         value = str(student_data.get(field, '-'))
-        
-        # 写入 PDF (直接拼接，不需要之前的那些 encode/decode 清洗了)
         pdf.cell(200, 10, txt=f"{field}: {value}", ln=1)
-        
-    # 输出 PDF 文件数据
     return pdf.output(dest='S').encode('latin-1')
 
 # --- 4. 界面逻辑 ---
+
+# 🌟 定义输入框的 Keys 列表 (方便批量管理)
+input_keys = [
+    "name_en", "mykid", "dob", "name_cn", "cls", "gender",
+    "race", "religion", "nationality", "address",
+    "father_name", "father_job", "father_ic", "father_income",
+    "mother_name", "mother_job", "mother_ic", "mother_income",
+    "guardian_phone"
+]
+
 with st.sidebar:
     st.title("🏫 旗舰校务系统")
     st.markdown("---")
-    menu = st.radio("系统菜单", ["📊 学生列表", "📅 每日点名", "➕ 录入新学生", "🔍 查询与打印"])
+    
+    # 🌟 关键修改：给菜单加 key，这样我们可以用代码控制它跳转
+    # 如果 session_state 里没有菜单状态，初始化为默认
+    if "menu_nav" not in st.session_state:
+        st.session_state["menu_nav"] = "📊 学生列表"
+
+    menu = st.radio(
+        "系统菜单", 
+        ["📊 学生列表", "📅 每日点名", "➕ 录入新学生", "🔍 查询与打印"],
+        key="menu_nav" # 绑定到 session_state
+    )
+    
     st.markdown("---")
     if st.button("🔄 强制刷新数据"):
         st.cache_data.clear()
 
 # ==========================================
-# 📊 功能 A: 智能分班名册 (Student List)
+# 📊 功能 A: 智能分班名册 + 编辑功能
 # ==========================================
 if menu == "📊 学生列表":
     st.title("📚 分班学生名册")
-    
-    # 1. 先读取所有数据
     df = load_data()
     
     if df.empty:
-        st.warning("⚠️ 数据库为空，请先去【资料录入】添加学生。")
+        st.warning("⚠️ 数据库为空。")
     else:
-        # --- 步骤 1: 提取所有班级选项 ---
-        # 自动从表格里找出所有的班级，并自动排序 (例如 1A, 1B, 2A...)
-        # 这里的 '班级' 必须和你 Google Sheet 的表头文字一模一样
         if '班级' in df.columns:
             available_classes = sorted(df['班级'].unique().tolist())
         else:
-            st.error("❌ 错误：表格中找不到【班级】这一列，请检查 Google Sheet 表头！")
-            st.stop()
-            
-        # --- 步骤 2: 班级选择器 (核心功能) ---
-        # 默认加一个 "请选择" 的选项，让界面更清爽
+            available_classes = []
+
         col1, col2 = st.columns([1, 3])
         with col1:
             selected_class = st.selectbox(
                 "📂 请选择要查看的班级：", 
-                ["请选择..."] + available_classes  # 列表合并
+                ["请选择..."] + available_classes
             )
         
-        # --- 步骤 3: 根据选择显示内容 ---
-        if selected_class == "请选择...":
-            st.info("👈 请在左上方选择一个班级以查看名单。")
-            st.image("https://cdn-icons-png.flaticon.com/512/2921/2921226.png", width=100) # 加个小图标装饰
-            
-        else:
-            # === 过滤数据：只保留该班级的学生 ===
+        if selected_class != "请选择...":
             class_df = df[df['班级'] == selected_class]
             
-            # === 顶部：班级小统计 (Dashboard style) ===
-            st.markdown(f"### 🏫 {selected_class} 班级概况")
+            # --- 顶部统计 ---
+            boys = class_df[class_df['性别'].astype(str).str.contains('男')].shape[0] if '性别' in class_df.columns else 0
+            girls = class_df[class_df['性别'].astype(str).str.contains('女')].shape[0] if '性别' in class_df.columns else 0
             
-            # 计算男女生人数 (防止表格里没有性别列报错)
-            if '性别' in class_df.columns:
-                boys = class_df[class_df['性别'].astype(str).str.contains('男')].shape[0]
-                girls = class_df[class_df['性别'].astype(str).str.contains('女')].shape[0]
-            else:
-                boys = 0
-                girls = 0
-            
-            # 显示漂亮的统计卡片
             m1, m2, m3 = st.columns(3)
             m1.metric("👩‍🎓 全班人数", f"{len(class_df)} 人")
             m2.metric("👦 男生", f"{boys} 人")
             m3.metric("👧 女生", f"{girls} 人")
-            
             st.divider()
             
-            # === 底部：详细名单表格 ===
-            # 这里依然保留我们要的 column_config，防止 0 被吃掉
+            # --- 🌟 新增：修改资料功能 ---
+            st.markdown("#### 🛠️ 修改资料")
+            # 制作一个下拉菜单，列出该班学生
+            student_list = class_df['学生姓名'].tolist()
+            student_to_edit = st.selectbox("选择要修改的学生:", ["(请选择)"] + student_list)
+            
+            if student_to_edit != "(请选择)":
+                if st.button(f"✏️ 编辑 {student_to_edit} 的资料", type="primary"):
+                    # 1. 找到这个学生的所有资料
+                    student_row = class_df[class_df['学生姓名'] == student_to_edit].iloc[0]
+                    
+                    # 2. 把资料填入 Session State (就像机器人帮你填好了表单)
+                    # 必须使用我们在 '录入页' 定义的 key
+                    st.session_state['name_en'] = student_row['学生姓名']
+                    st.session_state['name_cn'] = student_row['中文姓名']
+                    st.session_state['cls'] = student_row['班级']
+                    st.session_state['mykid'] = str(student_row['身份证/MyKid']) # 确保是字符串
+                    st.session_state['dob'] = parse_date(student_row['出生日期']) # 转换日期格式
+                    st.session_state['gender'] = student_row['性别'] + " (Lelaki)" if student_row['性别'] == "男" else student_row['性别'] + " (Perempuan)"
+                    # 简单的性别处理，如果之前存的是"男"，这里需要匹配 Radio 的选项 "男 (Lelaki)" 等
+                    # 为了简化，建议你的 Radio 选项和表格里存的一致。
+                    # 假设你表格存的是 "男" 或 "女"：
+                    st.session_state['gender'] = student_row['性别'] 
+
+                    st.session_state['race'] = student_row['种族']
+                    st.session_state['religion'] = student_row['宗教']
+                    st.session_state['nationality'] = student_row['国籍']
+                    st.session_state['address'] = student_row['住址']
+                    st.session_state['guardian_phone'] = str(student_row['监护人电话'])
+                    
+                    st.session_state['father_name'] = student_row['父亲姓名']
+                    st.session_state['father_ic'] = str(student_row['父亲IC'])
+                    st.session_state['father_job'] = student_row['父亲职业']
+                    # 处理收入数字
+                    try: st.session_state['father_income'] = int(float(student_row['父亲收入']))
+                    except: st.session_state['father_income'] = 0
+
+                    st.session_state['mother_name'] = student_row['母亲姓名']
+                    st.session_state['mother_ic'] = str(student_row['母亲IC'])
+                    st.session_state['mother_job'] = student_row['母亲职业']
+                    try: st.session_state['mother_income'] = int(float(student_row['母亲收入']))
+                    except: st.session_state['mother_income'] = 0
+
+                    # 3. 核心魔法：强制跳转到录入页
+                    st.session_state["menu_nav"] = "➕ 录入新学生"
+                    st.rerun()
+
+            st.divider()
+            
+            # --- 底部：名单表格 ---
             st.dataframe(
                 class_df,
                 use_container_width=True,
-                hide_index=True, # 隐藏左边那列 0,1,2 序号，看起来更干净
+                hide_index=True,
                 column_config={
-                    "身份证/MyKid": st.column_config.TextColumn("身份证/MyKid", help="身份识别码"),
+                    "身份证/MyKid": st.column_config.TextColumn("身份证/MyKid"),
                     "监护人电话": st.column_config.TextColumn("监护人电话"),
                     "父亲IC": st.column_config.TextColumn("父亲IC"),
                     "母亲IC": st.column_config.TextColumn("母亲IC"),
-                    "家庭总收入": st.column_config.NumberColumn("家庭总收入", format="RM %d") # 顺便给钱加个RM单位
+                    "家庭总收入": st.column_config.NumberColumn("家庭总收入", format="RM %d")
                 }
-            )
-            
-            # === 额外功能：一键下载该班名单 ===
-            # 把当前筛选出来的 class_df 转成 CSV 供下载
-            csv = class_df.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label=f"📥 下载 {selected_class} 班名单 (Excel/CSV)",
-                data=csv,
-                file_name=f"NameList_{selected_class}.csv",
-                mime='text/csv',
             )
 
 # ==========================================
-# 📅 功能 2: 智能每日点名 (Excel 模式)
+# 📅 功能 2: 智能每日点名
 # ==========================================
 elif menu == "📅 每日点名":
     st.title("📅 每日出席记录")
-    
-    # 1. 顶部选择器
     col1, col2 = st.columns(2)
     with col1:
         date = st.date_input("选择日期", datetime.date.today())
     with col2:
-        # 这里保留了我们之前约定的 A 班制
         selected_class = st.selectbox("选择班级", ["1A", "2A", "3A", "4A", "5A", "6A"])
     
     st.divider()
 
-    # 2. 加载数据
     if st.button("🚀 开始点名", type="primary"):
         st.session_state['attendance_loaded'] = True
     
-    # 使用 session_state 防止刷新后表格消失
     if st.session_state.get('attendance_loaded'):
         df = load_data()
         class_students = df[df['班级'] == selected_class]
         
         if class_students.empty:
-            st.warning(f"⚠️ {selected_class} 还没有学生资料，请先去录入。")
+            st.warning(f"⚠️ {selected_class} 还没有学生资料。")
         else:
             st.subheader(f"📋 {selected_class} 点名表")
-            st.caption("💡 提示：所有学生默认为【出席】，直接在表格里修改缺席学生的状态即可。")
-
-            # --- A. 准备点名表格数据 ---
-            # 只取姓名和IC，防止无关信息干扰
             attendance_df = class_students[['学生姓名', '身份证/MyKid']].copy()
-            # 核心魔法：增加两列，默认设为 "出席" 和 空白
             attendance_df['当前状态'] = "✅ 出席"
             attendance_df['缺席备注'] = ""
 
-            # --- B. 显示智能表格 (Data Editor) ---
-            # 这是一个可以编辑的表格！
             edited_df = st.data_editor(
                 attendance_df,
                 use_container_width=True,
-                hide_index=True,  # 隐藏左边的序号
-                num_rows="fixed", # 禁止添加/删除行，只能改状态
+                hide_index=True,
+                num_rows="fixed",
                 column_config={
-                    "学生姓名": st.column_config.TextColumn("学生姓名", disabled=True), # 锁住名字不让改
+                    "学生姓名": st.column_config.TextColumn("学生姓名", disabled=True),
                     "身份证/MyKid": st.column_config.TextColumn("身份证/MyKid", disabled=True),
-                    
-                    # ✨ 重点：把“当前状态”变成下拉菜单 ✨
                     "当前状态": st.column_config.SelectboxColumn(
-                        "出席状态 (点击修改)",
-                        help="请选择缺席原因",
-                        width="medium",
-                        options=[
-                            "✅ 出席",
-                            "😷 病假 (Sakit)",
-                            "🏠 事假 (Urusan Keluarga)",
-                            "❌ 旷课 (Ponteng)",
-                            "📝 迟到 (Lewat)",
-                            "🏫 代表学校 (Wakil Sekolah)",
-                            "❓ 其他 (Lain-lain)"
-                        ],
+                        "出席状态",
+                        options=["✅ 出席", "😷 病假 (Sakit)", "🏠 事假 (Urusan Keluarga)", "❌ 旷课 (Ponteng)", "📝 迟到 (Lewat)", "🏫 代表学校 (Wakil Sekolah)", "❓ 其他 (Lain-lain)"],
                         required=True
                     ),
-                    "缺席备注": st.column_config.TextColumn(
-                        "备注 (如有)",
-                        help="例如：发烧、回乡、车坏...",
-                        width="large"
-                    )
+                    "缺席备注": st.column_config.TextColumn("备注 (如有)")
                 }
             )
 
-            # --- C. 保存按钮 ---
-            st.markdown("---")
             if st.button("💾 提交今日记录", use_container_width=True):
-                with st.spinner("正在写入云端数据库..."):
+                with st.spinner("正在写入..."):
                     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     rows_to_add = []
-                    
-                    # 遍历刚才编辑过的表格 (edited_df)
                     for index, row in edited_df.iterrows():
-                        status = row['当前状态']
-                        
-                        # 只有当状态不是“出席”时，才视为有记录需要特别关注
-                        # 但为了记录完整性，我们通常把全班都存进去，方便算出席率
-                        
-                        # 数据格式: 日期 | 班级 | 姓名 | 状态 | 备注 | 记录时间
-                        # (注意：我们在 Excel 也要多加一列“备注”)
                         rows_to_add.append([
-                            str(date), 
-                            selected_class, 
-                            row['学生姓名'], 
-                            status,          # 这里会保存 "😷 病假 (Sakit)" 这种详细原因
-                            row['缺席备注'], # 具体的备注内容
-                            timestamp
+                            str(date), selected_class, row['学生姓名'], row['当前状态'], row['缺席备注'], timestamp
                         ])
-                    
-                    # 写入 Google Sheet 的 attendance 分页
                     att_sheet.append_rows(rows_to_add)
-                    st.success(f"✅ {selected_class} 点名完成！已保存 {len(rows_to_add)} 条记录。")
+                    st.success("✅ 点名完成！")
                     st.balloons()
-                    # 可以在这里加个清除 session 的操作让表格重置，看你习惯
 
-# === 功能 B: 录入新学生 (修复版) ===
+# ==========================================
+# ➕ 功能 B: 录入新学生 (手动清空 & 预填充版)
+# ==========================================
 elif menu == "➕ 录入新学生":
-    st.title("📝 新生/现有学生资料录入")
-    st.info("💡 系统会自动根据身份证号判断是【新增】还是【更新】。")
+    st.title("📝 资料录入 / 修改")
     
+    # 1. 顶部操作栏
+    c1, c2 = st.columns([3, 1])
+    with c1:
+        st.info("💾 保存后表单【不会】自动清空，方便您检查。如需录入下一位，请点击右侧【🆕 新增学生】按钮。")
+    with c2:
+        # 🌟 新增功能：手动清空按钮
+        if st.button("🆕 新增学生 (清空)", type="secondary", use_container_width=True):
+            # 清除所有 Session State 里的输入框记录
+            for key in input_keys:
+                if key in st.session_state:
+                    del st.session_state[key]
+            st.rerun()
+
     with st.form("add_student_form"):
         tab1, tab2 = st.tabs(["👤 学生个人资料", "👨‍👩‍👧‍👦 父母家庭资料"])
         
-        # === 标签页 1: 学生资料 ===
         with tab1:
             st.subheader("基本信息")
             col1, col2 = st.columns(2)
             with col1:
-                name_en = st.text_input("学生姓名 (Name)")
-                mykid = st.text_input("身份证/MyKid (无横杠)")
-                dob = st.date_input("出生日期")
+                name_en = st.text_input("学生姓名 (Name)", key="name_en")
+                mykid = st.text_input("身份证/MyKid (无横杠)", key="mykid", help="这是识别学生身份的唯一号码，修改时以此为准")
+                dob = st.date_input("出生日期", key="dob")
             with col2:
-                name_cn = st.text_input("中文姓名")
-                cls = st.selectbox("班级", ["1A", "2A", "3A", "4A", "5A", "6A"])
-                gender = st.radio("性别", ["男", "女"], horizontal=True)
+                name_cn = st.text_input("中文姓名", key="name_cn")
+                cls = st.selectbox("班级", ["1A", "2A", "3A", "4A", "5A", "6A"], key="cls")
+                gender = st.radio("性别", ["男", "女"], horizontal=True, key="gender")
 
             st.subheader("背景资料")
             col3, col4, col5 = st.columns(3)
             with col3:
-                race = st.selectbox("种族", ["华裔", "巫裔", "印裔", "其他"])
+                race = st.selectbox("种族", ["华裔", "巫裔", "印裔", "其他"], key="race")
             with col4:
-                religion = st.selectbox("宗教", ["佛教", "伊斯兰教", "基督教", "兴都教", "道教", "其他"])
+                religion = st.selectbox("宗教", ["佛教", "伊斯兰教", "基督教", "兴都教", "道教", "其他"], key="religion")
             with col5:
-                nationality = st.selectbox("国籍", ["马来西亚公民", "非公民", "永久居民"])
-            
-            address = st.text_area("家庭住址")
+                nationality = st.selectbox("国籍", ["马来西亚公民", "非公民", "永久居民"], key="nationality")
+            address = st.text_area("家庭住址", key="address")
 
-        # === 标签页 2: 家长资料 ===
         with tab2:
-            st.info("💡 提示：用于申请 RMT/KWAPM 援助金的重要资料")
-            st.markdown("#### 👨 父亲资料 (Bapa)")
+            st.markdown("#### 👨 父亲资料")
             col_f1, col_f2 = st.columns(2)
             with col_f1:
-                father_name = st.text_input("父亲姓名")
-                father_job = st.selectbox("父亲职业", ["公务员", "私人界", "自雇", "无业/退休", "已故"])
+                father_name = st.text_input("父亲姓名", key="father_name")
+                father_job = st.selectbox("父亲职业", ["公务员", "私人界", "自雇", "无业/退休", "已故"], key="father_job")
             with col_f2:
-                father_ic = st.text_input("父亲 IC")
-                father_income = st.number_input("父亲月收入 (RM)", min_value=0, step=100)
+                father_ic = st.text_input("父亲 IC", key="father_ic")
+                father_income = st.number_input("父亲月收入 (RM)", min_value=0, step=100, key="father_income")
 
             st.divider()
-            st.markdown("#### 👩 母亲资料 (Ibu)")
+            st.markdown("#### 👩 母亲资料")
             col_m1, col_m2 = st.columns(2)
             with col_m1:
-                mother_name = st.text_input("母亲姓名")
-                mother_job = st.selectbox("母亲职业", ["公务员", "私人界", "自雇", "家庭主妇", "已故"])
+                mother_name = st.text_input("母亲姓名", key="mother_name")
+                mother_job = st.selectbox("母亲职业", ["公务员", "私人界", "自雇", "家庭主妇", "已故"], key="mother_job")
             with col_m2:
-                mother_ic = st.text_input("母亲 IC")
-                mother_income = st.number_input("母亲月收入 (RM)", min_value=0, step=100)
+                mother_ic = st.text_input("母亲 IC", key="mother_ic")
+                mother_income = st.number_input("母亲月收入 (RM)", min_value=0, step=100, key="mother_income")
             
             st.divider()
-            guardian_phone = st.text_input("📞 监护人/紧急电话")
+            guardian_phone = st.text_input("📞 监护人/紧急电话", key="guardian_phone")
 
-        # === 提交逻辑 ===
         st.markdown("---")
-        submitted = st.form_submit_button("💾 保存 / 更新资料", use_container_width=True)
-        
-        if submitted:
+        if st.form_submit_button("💾 保存 / 更新资料", use_container_width=True):
             if not name_en or not mykid:
-                st.error("❌ 无法保存：学生姓名和身份证号必须填写！")
+                st.error("❌ 姓名和身份证号必须填写！")
             else:
-                with st.spinner("正在处理数据..."):
+                with st.spinner("正在处理..."):
                     total_income = father_income + mother_income
-                    # 准备写入的数据 (强制把数字转为 str 字符串)
                     new_row = [
                         name_en, name_cn, cls, str(mykid), 
                         gender.split(" ")[0], str(dob), 
@@ -361,57 +338,39 @@ elif menu == "➕ 录入新学生":
                     ]
                     
                     try:
-                        # 🟢 改动 2: 获取所有 ID 时，强制转为字符串 (str) 并且去掉空格 (strip)
-                        # 这样能保证 "90402" 和 90402 也能匹配上
-                        all_values = sheet.col_values(4) # 获取第4列
+                        all_values = sheet.col_values(4) 
                         all_ids_str = [str(x).strip() for x in all_values] 
                         current_id = str(mykid).strip()
                         
                         if current_id in all_ids_str:
-                            # === 更新 ===
                             row_index = all_ids_str.index(current_id) + 1
                             sheet.update(range_name=f"A{row_index}:T{row_index}", values=[new_row])
-                            st.warning(f"⚠️ 检测到 IC {mykid} 已存在，已成功更新资料！")
+                            st.success(f"✅ 更新成功：{name_en} 的资料已保存！")
                         else:
-                            # === 新增 ===
                             sheet.append_row(new_row)
                             st.success(f"✅ 新增成功：{name_en}")
-                            st.balloons()
-
+                        
                         st.cache_data.clear()
+                        # ⚠️ 这里去掉了清空和 st.rerun()，所以资料会保留在屏幕上
                         
                     except Exception as e:
                         st.error(f"发生错误: {e}")
 
 # ==========================================
-# 🔍 功能 4: 查询与 PDF (Search & Print)
+# 🔍 功能 4: 查询与 PDF
 # ==========================================
 elif menu == "🔍 查询与打印":
     st.title("🔍 学生档案查询")
     search_term = st.text_input("输入姓名或身份证号")
-    
     if search_term:
         df = load_data()
-        # 模糊搜索
         result = df[df.astype(str).apply(lambda x: x.str.contains(search_term, case=False)).any(axis=1)]
-        
         if not result.empty:
             st.success(f"找到 {len(result)} 位学生")
-            
             for index, row in result.iterrows():
                 with st.expander(f"👤 {row['学生姓名']} ({row['班级']})"):
-                    # 展示详情
                     st.write(row)
-                    
-                    # PDF 下载按钮
-                    # 注意：Python 标准 PDF 库不支持中文字体，生成的 PDF 中文可能会乱码或消失
-                    # 这里仅作为演示，显示基本英文信息
                     pdf_data = generate_pdf(row)
-                    st.download_button(
-                        label="📄 下载个人档案 (PDF)",
-                        data=pdf_data,
-                        file_name=f"Profile_{row['学生姓名']}.pdf",
-                        mime="application/pdf"
-                    )
+                    st.download_button(label="📄 下载 PDF", data=pdf_data, file_name=f"{row['学生姓名']}.pdf", mime="application/pdf")
         else:
             st.warning("查无此人。")
