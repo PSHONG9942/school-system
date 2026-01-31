@@ -68,30 +68,65 @@ if menu == "📊 学生列表":
     else:
         st.dataframe(df, use_container_width=True)
 
-# === 功能 B: 录入新学生 ===
+# === 功能 B: 录入新学生 (升级版) ===
 elif menu == "➕ 录入新学生":
-    st.title("新生资料录入")
+    st.title("📝 新生详细资料录入")
+    st.info("请依照 idMe/APDM 标准填写以下资料。")
     
     with st.form("add_student_form"):
+        # --- 第一部分：基本身份信息 ---
+        st.subheader("1. 身份信息")
         col1, col2 = st.columns(2)
         with col1:
-            name = st.text_input("学生姓名 (必填)")
-            ic_no = st.text_input("身份证号")
+            name_en = st.text_input("学生姓名 (马来文/英文 Name)")
+            mykid = st.text_input("身份证/MyKid 号码 (无横杠)")
+            dob = st.date_input("出生日期")
         with col2:
-            cls = st.selectbox("班级", ["1A", "1B", "1C", "1D", "2A", "2B"])
+            name_cn = st.text_input("中文姓名 (选填)")
+            cls = st.selectbox("班级", ["1A", "1B", "1C", "1D", "2A", "2B", "3A", "3B", "4A", "4B", "5A", "5B", "6A", "6B"])
+            gender = st.radio("性别", ["男 (Lelaki)", "女 (Perempuan)"], horizontal=True)
+
+        # --- 第二部分：背景资料 (idMe 必填) ---
+        st.subheader("2. 背景资料")
+        col3, col4, col5 = st.columns(3)
+        with col3:
+            race = st.selectbox("种族 (Kaum)", ["华裔 (Cina)", "巫裔 (Melayu)", "印裔 (India)", "其他 (Lain-lain)"])
+        with col4:
+            religion = st.selectbox("宗教 (Agama)", ["佛教 (Buddha)", "伊斯兰教 (Islam)", "基督教 (Kristian)", "兴都教 (Hindu)", "道教 (Tao)", "其他"])
+        with col5:
+            nationality = st.selectbox("国籍 (Warganegara)", ["马来西亚公民", "非公民", "永久居民"])
+
+        # --- 第三部分：联系方式 ---
+        st.subheader("3. 家庭联系")
+        address = st.text_area("家庭住址 (Alamat Rumah)")
+        guardian_phone = st.text_input("监护人电话 (No. Telefon Penjaga)")
             
-        submitted = st.form_submit_button("💾 保存到云端")
+        # --- 提交按钮 ---
+        submitted = st.form_submit_button("💾 保存完整资料")
         
         if submitted:
-            if not name:
-                st.error("❌ 姓名不能为空！")
+            if not name_en or not mykid:
+                st.error("❌ 姓名(英文)和身份证号是必填项！")
             else:
                 with st.spinner("正在写入 Google Sheets..."):
-                    # 把新数据添加到表格最后一行
-                    new_row = [name, cls, ic_no]
+                    # 注意：这里的顺序必须和 Google Sheet 表头的顺序一模一样！
+                    # 顺序：姓名 | 中文名 | 班级 | IC | 性别 | 生日 | 种族 | 宗教 | 国籍 | 地址 | 电话
+                    new_row = [
+                        name_en, 
+                        name_cn, 
+                        cls, 
+                        str(mykid), # 强制转为文字防止变成科学计数法
+                        gender.split(" ")[0], # 只取"男"或"女"
+                        str(dob), 
+                        race.split(" ")[0], # 只取"华裔"
+                        religion.split(" ")[0], 
+                        nationality, 
+                        address, 
+                        "'" + str(guardian_phone) # 加个单引号防止Excel把电话前面的0吃掉
+                    ]
+                    
                     sheet.append_row(new_row)
-                    st.success(f"✅ 已成功保存：{name}")
-                    # 稍微等一下让数据同步
+                    st.success(f"✅ 学生 {name_en} 资料已录入成功！")
                     st.cache_data.clear()
 
 # === 功能 C: 简单查询 ===
