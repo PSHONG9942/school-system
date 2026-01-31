@@ -41,10 +41,20 @@ except Exception as e:
     st.error(f"❌ 连接数据库失败！请检查：1. Google Sheet 是否已创建？ 2. 名字是否叫 school_database？ 3. 是否已经 Share 给机器人邮箱？\n错误信息: {e}")
     st.stop()
 
-# --- 3. 辅助函数：读取数据 ---
+# --- 3. 辅助函数：读取数据 (升级修复版) ---
 def load_data():
     data = sheet.get_all_records()
-    return pd.DataFrame(data)
+    df = pd.DataFrame(data)
+    
+    # 🛠️ 强制修复：把特定列转为“纯文字”格式，防止 0 被吃掉
+    # 这些列名必须和你 Google Sheet 的第一行完全一致
+    cols_to_fix = ["身份证/MyKid", "监护人电话", "父亲IC", "母亲IC"]
+    
+    for col in cols_to_fix:
+        if col in df.columns:
+            df[col] = df[col].astype(str) # 强制转为 String (文字)
+            
+    return df
 
 # --- 4. 界面逻辑 ---
 with st.sidebar:
@@ -63,10 +73,22 @@ if menu == "📊 学生列表":
     # 读取数据
     df = load_data()
     
+    # ... (前面的代码保持不变) ...
     if df.empty:
         st.info("目前表格是空的，快去录入数据吧！")
     else:
-        st.dataframe(df, use_container_width=True)
+        # 🛠️ 这里的 column_config 是关键！
+        # 它告诉 Streamlit：这些列是 TextColumn (文本)，千万别当成 Number (数字)
+        st.dataframe(
+            df, 
+            use_container_width=True,
+            column_config={
+                "身份证/MyKid": st.column_config.TextColumn("身份证/MyKid", help="身份识别码"),
+                "监护人电话": st.column_config.TextColumn("监护人电话"),
+                "父亲IC": st.column_config.TextColumn("父亲IC"),
+                "母亲IC": st.column_config.TextColumn("母亲IC"),
+            }
+        )
 
 # === 功能 B: 录入新学生 (智能更新版) ===
 elif menu == "➕ 录入新学生":
