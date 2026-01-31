@@ -2,10 +2,11 @@ import streamlit as st
 import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-import json
+from fpdf import FPDF
+import datetime
 
 # --- 1. 页面配置 ---
-st.set_page_config(page_title="学校资料管理系统", layout="wide")
+st.set_page_config(page_title="SJK(C) 旗舰校务系统", layout="wide", page_icon="🏫")
 
 # --- 2. 连接 Google Sheets ---
 @st.cache_resource
@@ -23,64 +24,144 @@ def get_connection():
         "client_x509_cert_url": st.secrets["client_x509_cert_url"],
         "universe_domain": "googleapis.com"
     }
-    
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
     creds = ServiceAccountCredentials.from_json_keyfile_dict(key_dict, scope)
     client = gspread.authorize(creds)
-    # 你的表格 ID (保持不变)
-    sheet = client.open_by_key("1yuqfbLmJ_IIFInB_XyKEula17Kyse6FGeqvZgh-Rn94").sheet1
-    return sheet
+    return client
 
+# 获取两个表格：学生表(sheet1) 和 出席表(attendance)
 try:
-    sheet = get_connection()
+    client = get_connection()
+    sheet = client.open_by_key("1yuqfbLmJ_IIFInB_XyKEula17Kyse6FGeqvZgh-Rn94").sheet1
+    # ⚠️ 确保你已经创建了名为 attendance 的分页
+    att_sheet = client.open_by_key("1yuqfbLmJ_IIFInB_XyKEula17Kyse6FGeqvZgh-Rn94").worksheet("attendance")
 except Exception as e:
-    st.error(f"❌ 连接失败: {e}")
+    st.error(f"❌ 连接失败: {e}\n请检查是否在 Google Sheet新建了 'attendance' 分页！")
     st.stop()
 
-# --- 3. 辅助函数：读取数据 (这是修复核心！) ---
+# --- 3. 辅助函数 ---
 def load_data():
-    # 🟢 改动 1: 使用 get_all_values 而不是 get_all_records
-    # 这样能保证读回来的全部是 String (纯文字)，0 不会被吃掉
     data = sheet.get_all_values()
-    
-    # 第一行是表头，后面是数据
     if len(data) > 0:
-        headers = data[0]
-        rows = data[1:]
-        df = pd.DataFrame(rows, columns=headers)
-        return df
-    else:
-        return pd.DataFrame()
+        return pd.DataFrame(data[1:], columns=data[0])
+    return pd.DataFrame()
+
+# PDF 生成器
+def generate_pdf(student_data):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    
+    # 标题
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(200, 10, txt=f"Student Profile: {student_data['学生姓名']}", ln=1, align='C')
+    pdf.ln(10)
+    
+    # 内容 (这里只能显示英文，因为标准PDF库对中文支持较麻烦，先做英文版)
+    pdf.set_font("Arial", size=12)
+    fields = ['班级', '身份证/MyKid', '性别', '出生日期', '种族', '宗教', '国籍', '家庭住址', '监护人电话']
+    
+    for field in fields:
+        # 简单的转码处理，防止乱码
+        value = str(student_data.get(field, '-'))
+        # 移除非ASCII字符(因为基础版fpdf不支持中文)
+        value_clean = value.encode('latin-1', 'replace').decode('latin-1') 
+        pdf.cell(200, 10, txt=f"{field}: {value_clean}", ln=1)
+        
+    return pdf.output(dest='S').encode('latin-1')
 
 # --- 4. 界面逻辑 ---
 with st.sidebar:
-    st.title("🏫 校务系统")
-    st.markdown(f"当前连接数据库: `school_database`")
-    menu = st.radio("功能导航", ["📊 学生列表", "➕ 录入新学生", "🔍 资料查询"])
-
-# === 功能 A: 学生列表 ===
-if menu == "📊 学生列表":
-    st.title("全校学生名册")
-    
-    if st.button("🔄 刷新数据"):
+    st.title("🏫 旗舰校务系统")
+    st.markdown("---")
+    menu = st.radio("系统菜单", ["📊 校务仪表盘", "📅 每日点名", "➕ 资料录入", "🔍 查询与打印"])
+    st.markdown("---")
+    if st.button("🔄 强制刷新数据"):
         st.cache_data.clear()
-        
+
+# ==========================================
+# 📊 功能 1: 仪表盘 (Dashboard)
+# ==========================================
+if menu == "📊 校务仪表盘":
+    st.title("📊 学校数据概览")
     df = load_data()
     
-    if df.empty:
-        st.info("表格为空，请先录入数据。")
+    if not df.empty:
+        # 1. 关键指标卡片
+        total_students = len(df)
+        
+        # 计算 B40 (假设家庭收入 < 4850)
+        # 记得要把收入转成数字，去掉可能存在的空格
+        df['家庭总收入'] = pd.to_numeric(df['家庭总收入'], errors='coerce').fillna(0)
+        b40_count = df[df['家庭总收入'] < 4850].shape[0]
+        
+        col1, col2, col3 = st.columns(3)
+        col1.metric("全校总人数", f"{total_students} 人")
+        col2.metric("B40 家庭学生", f"{b40_count} 人", help="家庭收入低于 RM4850")
+        col3.metric("平均家庭收入", f"RM {int(df['家庭总收入'].mean())}")
+        
+        st.divider()
+        
+        # 2. 图表分析
+        c1, c2 = st.columns(2)
+        with c1:
+            st.subheader("种族分布")
+            race_counts = df['种族'].value_counts()
+            st.bar_chart(race_counts)
+            
+        with c2:
+            st.subheader("班级人数")
+            class_counts = df['班级'].value_counts()
+            st.bar_chart(class_counts, color="#ffaa00")
+
     else:
-        # 🟢 即使数据已经是文字了，我们还是强制配置一下，确保万无一失
-        st.dataframe(
-            df, 
-            use_container_width=True,
-            column_config={
-                "身份证/MyKid": st.column_config.TextColumn("身份证/MyKid"),
-                "监护人电话": st.column_config.TextColumn("监护人电话"),
-                "父亲IC": st.column_config.TextColumn("父亲IC"),
-                "母亲IC": st.column_config.TextColumn("母亲IC"),
-            }
-        )
+        st.info("暂无数据，请先录入学生。")
+
+# ==========================================
+# 📅 功能 2: 每日点名 (Attendance)
+# ==========================================
+elif menu == "📅 每日点名":
+    st.title("📅 每日出席记录")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        date = st.date_input("选择日期", datetime.date.today())
+    with col2:
+        selected_class = st.selectbox("选择班级", ["1A", "1B", "1C", "1D", "2A", "2B", "3A", "3B", "4A", "4B", "5A", "5B", "6A", "6B"])
+    
+    if st.button("列出学生名单"):
+        df = load_data()
+        # 筛选出该班级的学生
+        class_students = df[df['班级'] == selected_class]
+        
+        if class_students.empty:
+            st.warning(f"{selected_class} 还没有学生资料。")
+        else:
+            st.subheader(f"{selected_class} 学生名单 ({len(class_students)}人)")
+            
+            with st.form("attendance_form"):
+                # 创建一个字典来存 checkbox 的状态
+                status_dict = {}
+                st.table(class_students[['学生姓名', '身份证/MyKid']])
+                
+                st.markdown("### 缺席勾选 (Tick if Absent)")
+                # 使用多选框来选缺席的人 (比较快)
+                absent_students = st.multiselect("请选择 **缺席** 的学生:", class_students['学生姓名'].tolist())
+                
+                remark = st.text_input("备注 (例如: 全班去旅行)")
+                
+                if st.form_submit_button("💾 提交出席率"):
+                    with st.spinner("正在保存到 attendance 表格..."):
+                        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        rows_to_add = []
+                        
+                        for student in class_students['学生姓名']:
+                            status = "缺席" if student in absent_students else "出席"
+                            # 数据格式: 日期 | 班级 | 姓名 | 状态 | 时间
+                            rows_to_add.append([str(date), selected_class, student, status, timestamp])
+                        
+                        att_sheet.append_rows(rows_to_add)
+                        st.success(f"✅ 已保存 {selected_class} 的点名记录！")
 
 # === 功能 B: 录入新学生 (修复版) ===
 elif menu == "➕ 录入新学生":
@@ -183,9 +264,11 @@ elif menu == "➕ 录入新学生":
                     except Exception as e:
                         st.error(f"发生错误: {e}")
 
-# === 功能 C: 简单查询 ===
-elif menu == "🔍 资料查询":
-    st.title("快速搜索")
+# ==========================================
+# 🔍 功能 4: 查询与 PDF (Search & Print)
+# ==========================================
+elif menu == "🔍 查询与打印":
+    st.title("🔍 学生档案查询")
     search_term = st.text_input("输入姓名或身份证号")
     
     if search_term:
@@ -194,9 +277,22 @@ elif menu == "🔍 资料查询":
         result = df[df.astype(str).apply(lambda x: x.str.contains(search_term, case=False)).any(axis=1)]
         
         if not result.empty:
-            st.success(f"找到 {len(result)} 条结果：")
-            # 同样配置一下显示格式
-            st.dataframe(result, use_container_width=True, 
-                         column_config={"身份证/MyKid": st.column_config.TextColumn("身份证/MyKid")})
+            st.success(f"找到 {len(result)} 位学生")
+            
+            for index, row in result.iterrows():
+                with st.expander(f"👤 {row['学生姓名']} ({row['班级']})"):
+                    # 展示详情
+                    st.write(row)
+                    
+                    # PDF 下载按钮
+                    # 注意：Python 标准 PDF 库不支持中文字体，生成的 PDF 中文可能会乱码或消失
+                    # 这里仅作为演示，显示基本英文信息
+                    pdf_data = generate_pdf(row)
+                    st.download_button(
+                        label="📄 下载个人档案 (PDF)",
+                        data=pdf_data,
+                        file_name=f"Profile_{row['学生姓名']}.pdf",
+                        mime="application/pdf"
+                    )
         else:
-            st.warning("未找到相关记录。")
+            st.warning("查无此人。")
