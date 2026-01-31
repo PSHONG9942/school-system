@@ -7,19 +7,30 @@ import json
 # --- 1. 页面配置 ---
 st.set_page_config(page_title="学校资料管理系统", layout="wide")
 
-# --- 2. 连接 Google Sheets (核心部分) ---
-# 使用缓存功能，避免每次操作都重新连接，提高速度
+# --- 2. 连接 Google Sheets (新版：更强壮的连接方式) ---
 @st.cache_resource
 def get_connection():
-    # 从 Streamlit Secrets 里读取我们刚才藏好的钥匙
-    key_dict = json.loads(st.secrets["google_creds"]["json_content"])
+    # 直接构建字典，不再依赖容易出错的 JSON 字符串
+    key_dict = {
+        "type": "service_account",
+        "project_id": st.secrets["project_id"],
+        "private_key_id": st.secrets["private_key_id"],
+        "private_key": st.secrets["private_key"],  # 这里会自动处理换行问题
+        "client_email": st.secrets["client_email"],
+        "client_id": st.secrets["client_id"],
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "client_x509_cert_url": st.secrets["client_x509_cert_url"],
+        "universe_domain": "googleapis.com"
+    }
     
     # 定义权限范围
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
     creds = ServiceAccountCredentials.from_json_keyfile_dict(key_dict, scope)
     client = gspread.authorize(creds)
     
-    # 打开你的表格 (确保你的 Google Sheet 名字叫 school_database)
+    # 打开你的表格 (记得确认表格 ID)
     sheet = client.open_by_key("1yuqfbLmJ_IIfInB_XyKEula17Kyse6FGeqvZgh-Rn94").sheet1
     return sheet
 
