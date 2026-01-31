@@ -6,7 +6,7 @@ from fpdf import FPDF
 import datetime
 
 # --- 1. 页面配置 ---
-st.set_page_config(page_title="SJK(C) 旗舰校务系统", layout="wide", page_icon="🏫")
+st.set_page_config(page_title="木威培青华小校务系统", layout="wide", page_icon="🏫")
 
 # --- 2. 连接 Google Sheets ---
 @st.cache_resource
