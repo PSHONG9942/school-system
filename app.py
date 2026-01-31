@@ -46,27 +46,48 @@ def load_data():
         return pd.DataFrame(data[1:], columns=data[0])
     return pd.DataFrame()
 
-# PDF 生成器
+# PDF 生成器 (防弹修复版)
 def generate_pdf(student_data):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", size=12)
     
-    # 标题
+    # 1. 处理标题 (把名字里的中文去掉，防止标题报错)
+    name = str(student_data.get('学生姓名', 'Student'))
+    # 强力清洗：只保留英文和数字，中文变问号
+    name_clean = name.encode('latin-1', 'replace').decode('latin-1')
+    
     pdf.set_font("Arial", 'B', 16)
-    pdf.cell(200, 10, txt=f"Student Profile: {student_data['学生姓名']}", ln=1, align='C')
+    pdf.cell(200, 10, txt=f"Student Profile: {name_clean}", ln=1, align='C')
     pdf.ln(10)
     
-    # 内容 (这里只能显示英文，因为标准PDF库对中文支持较麻烦，先做英文版)
     pdf.set_font("Arial", size=12)
-    fields = ['班级', '身份证/MyKid', '性别', '出生日期', '种族', '宗教', '国籍', '家庭住址', '监护人电话']
     
-    for field in fields:
-        # 简单的转码处理，防止乱码
-        value = str(student_data.get(field, '-'))
-        # 移除非ASCII字符(因为基础版fpdf不支持中文)
+    # 2. 字段映射 (左边是Excel里的中文表头，右边是PDF显示的英文标签)
+    # 这样 FPDF 就不会因为看到中文字而崩溃了
+    field_map = {
+        '班级': 'Class',
+        '身份证/MyKid': 'ID/MyKid',
+        '性别': 'Gender',
+        '出生日期': 'Date of Birth',
+        '种族': 'Race',
+        '宗教': 'Religion',
+        '国籍': 'Nationality',
+        '家庭住址': 'Address',
+        '监护人电话': 'Phone'
+    }
+    
+    for cn_key, en_label in field_map.items():
+        # 获取数据
+        value = str(student_data.get(cn_key, '-'))
+        
+        # 3. 强力清洗内容
+        # 如果内容是中文（比如“华裔”），会被替换成 '?'，防止报错
+        # (这只是暂时的，为了让功能先跑通)
         value_clean = value.encode('latin-1', 'replace').decode('latin-1') 
-        pdf.cell(200, 10, txt=f"{field}: {value_clean}", ln=1)
+        
+        # 写入 PDF (使用英文标签)
+        pdf.cell(200, 10, txt=f"{en_label}: {value_clean}", ln=1)
         
     return pdf.output(dest='S').encode('latin-1')
 
