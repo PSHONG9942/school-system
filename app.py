@@ -68,6 +68,47 @@ def generate_pdf(student_data):
         pdf.cell(200, 10, txt=f"{field}: {value}", ln=1)
     return pdf.output(dest='S').encode('latin-1')
 
+# --- 批量 PDF 生成器 (打印整班) ---
+def generate_class_bulk_pdf(class_df, class_name):
+    pdf = FPDF()
+    # 加载中文字体
+    pdf.add_font('NotoSansSC', '', 'NotoSansSC-Regular.ttf', uni=True)
+    
+    # 遍历班级里的每一位学生
+    for index, row in class_df.iterrows():
+        pdf.add_page() # 每换一个人，就新开一页
+        
+        # --- 下面是画单人档案的逻辑 (和单人版一样) ---
+        pdf.set_font("NotoSansSC", size=12)
+        name = str(row.get('学生姓名', 'Student'))
+        
+        # 页眉：显示班级和学生名字
+        pdf.set_font_size(10)
+        pdf.cell(0, 10, txt=f"Class: {class_name} | Date: {datetime.date.today()}", ln=1, align='R')
+        
+        # 标题
+        pdf.set_font_size(18)
+        pdf.cell(0, 10, txt=f"学生个人档案: {name}", ln=1, align='C')
+        pdf.ln(5)
+        
+        # 内容
+        pdf.set_font_size(12)
+        fields = ['班级', '身份证/MyKid', '性别', '出生日期', '种族', '宗教', '国籍', 
+                  '家庭住址', '监护人电话', 
+                  '父亲姓名', '父亲IC', '父亲职业', '父亲收入',
+                  '母亲姓名', '母亲IC', '母亲职业', '母亲收入', '家庭总收入']
+        
+        # 画个框框或者横线更好看
+        pdf.line(10, 35, 200, 35)
+        
+        for field in fields:
+            value = str(row.get(field, '-'))
+            # 简单的排版：左边是标签，右边是值
+            pdf.cell(50, 8, txt=f"{field}:", ln=0)
+            pdf.cell(0, 8, txt=f"{value}", ln=1)
+            
+    return pdf.output(dest='S').encode('latin-1')
+
 # --- 4. 界面逻辑 ---
 
 # 🌟 定义输入框的 Keys 列表 (方便批量管理)
@@ -99,12 +140,12 @@ with st.sidebar:
         st.cache_data.clear()
 
 # ==========================================
-# 📊 功能 A: 智能分班名册 + 编辑 + 打印
+# 📊 功能 A: 智能分班名册 + 批量打印
 # ==========================================
 if menu == "📊 学生列表":
     st.title("📚 分班学生名册")
     df = load_data()
-    
+
     # --- 🟢 回调函数 (保持不变) ---
     def edit_student_callback(row):
         st.session_state["menu_nav"] = "➕ 录入新学生"
@@ -129,7 +170,6 @@ if menu == "📊 学生列表":
         st.session_state['mother_job'] = row['母亲职业']
         try: st.session_state['mother_income'] = int(float(row['母亲收入']))
         except: st.session_state['mother_income'] = 0
-
     # ---------------------------------------------
 
     if df.empty:
@@ -150,7 +190,7 @@ if menu == "📊 学生列表":
         if selected_class != "请选择...":
             class_df = df[df['班级'] == selected_class]
             
-            # --- 顶部统计 ---
+            # --- 1. 顶部统计 ---
             boys = class_df[class_df['性别'].astype(str).str.contains('男')].shape[0] if '性别' in class_df.columns else 0
             girls = class_df[class_df['性别'].astype(str).str.contains('女')].shape[0] if '性别' in class_df.columns else 0
             
@@ -158,45 +198,42 @@ if menu == "📊 学生列表":
             m1.metric("👩‍🎓 全班人数", f"{len(class_df)} 人")
             m2.metric("👦 男生", f"{boys} 人")
             m3.metric("👧 女生", f"{girls} 人")
-            st.divider()
             
-            # --- 🛠️ 选中学生操作区 (编辑 + 打印) ---
-            st.markdown("#### 👤 学生操作 (编辑 / 打印)")
+            # --- 🌟 新增：批量打印区 ---
+            st.info(f"💡 想要打印 {selected_class} 所有学生的资料？点击下方按钮生成整班 PDF。")
+            
+            # 生成全班 PDF 数据
+            bulk_pdf = generate_class_bulk_pdf(class_df, selected_class)
+            
+            st.download_button(
+                label=f"📚 下载 {selected_class} 全班完整档案 (PDF)",
+                data=bulk_pdf,
+                file_name=f"Full_Class_Profiles_{selected_class}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                type="primary" # 让按钮变红，显眼一点
+            )
+            
+            st.divider()
+
+            # --- 2. 单个学生操作区 (保留编辑功能) ---
+            st.markdown("#### 👤 单个学生编辑")
             student_list = class_df['学生姓名'].tolist()
-            student_to_edit = st.selectbox("请选择一位学生:", ["(请选择)"] + student_list)
+            student_to_edit = st.selectbox("选择学生进行编辑:", ["(请选择)"] + student_list)
             
             if student_to_edit != "(请选择)":
-                # 获取该学生数据
                 student_row = class_df[class_df['学生姓名'] == student_to_edit].iloc[0]
-                
-                # ✨ 布局魔法：把两个按钮并排显示
-                btn_col1, btn_col2 = st.columns([1, 1])
-                
-                with btn_col1:
-                    # 🔴 按钮 1: 编辑 (跳去录入页)
-                    st.button(
-                        f"✏️ 修改资料", 
-                        type="primary",
-                        on_click=edit_student_callback,
-                        args=(student_row,),
-                        use_container_width=True
-                    )
-                
-                with btn_col2:
-                    # 🔵 按钮 2: 打印 (生成 PDF)
-                    # 只有当选中学生时才实时生成 PDF
-                    pdf_data = generate_pdf(student_row)
-                    st.download_button(
-                        label="📄 下载 PDF 档案",
-                        data=pdf_data,
-                        file_name=f"Profile_{student_to_edit}.pdf",
-                        mime="application/pdf",
-                        use_container_width=True
-                    )
+                st.button(
+                    f"✏️ 修改 {student_to_edit} 的资料", 
+                    type="secondary",
+                    on_click=edit_student_callback,
+                    args=(student_row,),
+                    use_container_width=True
+                )
 
             st.divider()
             
-            # --- 底部：名单表格 ---
+            # --- 3. 底部名单表格 ---
             st.dataframe(
                 class_df,
                 use_container_width=True,
