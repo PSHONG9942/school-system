@@ -68,12 +68,18 @@ if menu == "📊 学生列表":
     else:
         st.dataframe(df, use_container_width=True)
 
-# === 功能 B: 录入新学生 (最终完整版) ===
+# === 功能 B: 录入新学生 (智能更新版) ===
 elif menu == "➕ 录入新学生":
-    st.title("📝 新生详细资料录入")
+    st.title("📝 新生/现有学生资料录入")
+    st.info("💡 智能系统：输入身份证号，系统会自动判断是【新增】还是【更新】。")
     
     with st.form("add_student_form"):
-        # 创建两个标签页，把复杂的资料分开填
+        # ... (这里是那两大段 tab1 和 tab2 的代码，为了省篇幅我略过，你自己保留原来的界面代码) ...
+        # ... (请保留你原来的界面输入框代码，直到 submitted = st.form_submit_button 那一行) ...
+        
+        # ⚠️ 把下面的代码复制进去，替换原来的界面代码：
+        # (为了确保你不出错，我还是把完整的界面+逻辑贴给你吧，直接覆盖整个 elif 块最安全)
+        
         tab1, tab2 = st.tabs(["👤 学生个人资料", "👨‍👩‍👧‍👦 父母家庭资料"])
         
         # === 标签页 1: 学生资料 ===
@@ -98,13 +104,11 @@ elif menu == "➕ 录入新学生":
             with col5:
                 nationality = st.selectbox("国籍", ["马来西亚公民", "非公民", "永久居民"])
             
-            address = st.text_area("家庭住址 (Alamat Rumah)")
+            address = st.text_area("家庭住址")
 
         # === 标签页 2: 家长资料 ===
         with tab2:
             st.info("💡 提示：用于申请 RMT/KWAPM 援助金的重要资料")
-            
-            # --- 父亲资料 ---
             st.markdown("#### 👨 父亲资料 (Bapa)")
             col_f1, col_f2 = st.columns(2)
             with col_f1:
@@ -114,9 +118,7 @@ elif menu == "➕ 录入新学生":
                 father_ic = st.text_input("父亲 IC")
                 father_income = st.number_input("父亲月收入 (RM)", min_value=0, step=100)
 
-            st.divider() # 画一条分割线
-
-            # --- 母亲资料 ---
+            st.divider()
             st.markdown("#### 👩 母亲资料 (Ibu)")
             col_m1, col_m2 = st.columns(2)
             with col_m1:
@@ -127,39 +129,54 @@ elif menu == "➕ 录入新学生":
                 mother_income = st.number_input("母亲月收入 (RM)", min_value=0, step=100)
             
             st.divider()
-            
-            # --- 紧急联系 ---
             guardian_phone = st.text_input("📞 监护人/紧急电话")
 
-        # === 提交区域 ===
+        # === 提交逻辑 (核心修改部分) ===
         st.markdown("---")
-        submitted = st.form_submit_button("💾 保存完整档案", use_container_width=True)
+        submitted = st.form_submit_button("💾 保存 / 更新资料", use_container_width=True)
         
         if submitted:
             if not name_en or not mykid:
                 st.error("❌ 无法保存：学生姓名和身份证号必须填写！")
             else:
-                with st.spinner("正在计算家庭收入并写入数据库..."):
-                    # 自动计算总收入
+                with st.spinner("正在处理数据..."):
+                    # 1. 准备数据 (注意：我去掉了 mykid 和 phone 前面的单引号)
                     total_income = father_income + mother_income
-                    
-                    # 准备写入的数据 (共 20 列)
-                    # 顺序要对应: A-K (旧) + L-T (新)
                     new_row = [
-                        name_en, name_cn, cls, "'" + str(mykid), 
+                        name_en, name_cn, cls, str(mykid), 
                         gender.split(" ")[0], str(dob), 
                         race, religion, nationality, address, 
-                        "'" + str(guardian_phone),
-                        # 新增的家长部分
-                        father_name, "'" + str(father_ic), father_job, father_income,
-                        mother_name, "'" + str(mother_ic), mother_job, mother_income,
-                        total_income # 自动算的
+                        str(guardian_phone), # 这里去掉了单引号
+                        father_name, str(father_ic), father_job, father_income,
+                        mother_name, str(mother_ic), mother_job, mother_income,
+                        total_income
                     ]
                     
-                    sheet.append_row(new_row)
-                    st.success(f"✅ 成功录入：{name_en} (家庭总收入: RM {total_income})")
-                    st.balloons() # 放个气球庆祝一下
-                    st.cache_data.clear()
+                    # 2. 检查 IC 是否存在 (智能判断)
+                    try:
+                        # 获取所有身份证号 (在第4列，即Column D)
+                        all_ids = sheet.col_values(4)
+                        
+                        if str(mykid) in all_ids:
+                            # === 发现旧人：更新 ===
+                            row_index = all_ids.index(str(mykid)) + 1 # 找到行号 (+1是因为列表从0开始)
+                            
+                            # 更新这一整行 (A到T列)
+                            # cell_list = sheet.range(f"A{row_index}:T{row_index}")
+                            # 简单粗暴更新法：
+                            sheet.update(range_name=f"A{row_index}:T{row_index}", values=[new_row])
+                            st.warning(f"⚠️ 检测到 IC {mykid} 已存在，已执行更新操作！")
+                            
+                        else:
+                            # === 没发现：新增 ===
+                            sheet.append_row(new_row)
+                            st.success(f"✅ 新增成功：{name_en}")
+                            st.balloons()
+
+                        st.cache_data.clear() # 清除缓存，让列表页刷新
+                        
+                    except Exception as e:
+                        st.error(f"发生错误: {e}")
 
 # === 功能 C: 简单查询 ===
 elif menu == "🔍 资料查询":
