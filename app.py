@@ -96,42 +96,87 @@ with st.sidebar:
         st.cache_data.clear()
 
 # ==========================================
-# 📊 功能 1: 仪表盘 (Dashboard)
+# 📊 功能 A: 智能分班名册 (Student List)
 # ==========================================
-if menu == "📊 校务仪表盘":
-    st.title("📊 学校数据概览")
+if menu == "📊 学生列表":
+    st.title("📚 分班学生名册")
+    
+    # 1. 先读取所有数据
     df = load_data()
     
-    if not df.empty:
-        # 1. 关键指标卡片
-        total_students = len(df)
-        
-        # 计算 B40 (假设家庭收入 < 4850)
-        # 记得要把收入转成数字，去掉可能存在的空格
-        df['家庭总收入'] = pd.to_numeric(df['家庭总收入'], errors='coerce').fillna(0)
-        b40_count = df[df['家庭总收入'] < 4850].shape[0]
-        
-        col1, col2, col3 = st.columns(3)
-        col1.metric("全校总人数", f"{total_students} 人")
-        col2.metric("B40 家庭学生", f"{b40_count} 人", help="家庭收入低于 RM4850")
-        col3.metric("平均家庭收入", f"RM {int(df['家庭总收入'].mean())}")
-        
-        st.divider()
-        
-        # 2. 图表分析
-        c1, c2 = st.columns(2)
-        with c1:
-            st.subheader("种族分布")
-            race_counts = df['种族'].value_counts()
-            st.bar_chart(race_counts)
-            
-        with c2:
-            st.subheader("班级人数")
-            class_counts = df['班级'].value_counts()
-            st.bar_chart(class_counts, color="#ffaa00")
-
+    if df.empty:
+        st.warning("⚠️ 数据库为空，请先去【资料录入】添加学生。")
     else:
-        st.info("暂无数据，请先录入学生。")
+        # --- 步骤 1: 提取所有班级选项 ---
+        # 自动从表格里找出所有的班级，并自动排序 (例如 1A, 1B, 2A...)
+        # 这里的 '班级' 必须和你 Google Sheet 的表头文字一模一样
+        if '班级' in df.columns:
+            available_classes = sorted(df['班级'].unique().tolist())
+        else:
+            st.error("❌ 错误：表格中找不到【班级】这一列，请检查 Google Sheet 表头！")
+            st.stop()
+            
+        # --- 步骤 2: 班级选择器 (核心功能) ---
+        # 默认加一个 "请选择" 的选项，让界面更清爽
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            selected_class = st.selectbox(
+                "📂 请选择要查看的班级：", 
+                ["请选择..."] + available_classes  # 列表合并
+            )
+        
+        # --- 步骤 3: 根据选择显示内容 ---
+        if selected_class == "请选择...":
+            st.info("👈 请在左上方选择一个班级以查看名单。")
+            st.image("https://cdn-icons-png.flaticon.com/512/2921/2921226.png", width=100) # 加个小图标装饰
+            
+        else:
+            # === 过滤数据：只保留该班级的学生 ===
+            class_df = df[df['班级'] == selected_class]
+            
+            # === 顶部：班级小统计 (Dashboard style) ===
+            st.markdown(f"### 🏫 {selected_class} 班级概况")
+            
+            # 计算男女生人数 (防止表格里没有性别列报错)
+            if '性别' in class_df.columns:
+                boys = class_df[class_df['性别'].astype(str).str.contains('男')].shape[0]
+                girls = class_df[class_df['性别'].astype(str).str.contains('女')].shape[0]
+            else:
+                boys = 0
+                girls = 0
+            
+            # 显示漂亮的统计卡片
+            m1, m2, m3 = st.columns(3)
+            m1.metric("👩‍🎓 全班人数", f"{len(class_df)} 人")
+            m2.metric("👦 男生", f"{boys} 人")
+            m3.metric("👧 女生", f"{girls} 人")
+            
+            st.divider()
+            
+            # === 底部：详细名单表格 ===
+            # 这里依然保留我们要的 column_config，防止 0 被吃掉
+            st.dataframe(
+                class_df,
+                use_container_width=True,
+                hide_index=True, # 隐藏左边那列 0,1,2 序号，看起来更干净
+                column_config={
+                    "身份证/MyKid": st.column_config.TextColumn("身份证/MyKid", help="身份识别码"),
+                    "监护人电话": st.column_config.TextColumn("监护人电话"),
+                    "父亲IC": st.column_config.TextColumn("父亲IC"),
+                    "母亲IC": st.column_config.TextColumn("母亲IC"),
+                    "家庭总收入": st.column_config.NumberColumn("家庭总收入", format="RM %d") # 顺便给钱加个RM单位
+                }
+            )
+            
+            # === 额外功能：一键下载该班名单 ===
+            # 把当前筛选出来的 class_df 转成 CSV 供下载
+            csv = class_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label=f"📥 下载 {selected_class} 班名单 (Excel/CSV)",
+                data=csv,
+                file_name=f"NameList_{selected_class}.csv",
+                mime='text/csv',
+            )
 
 # ==========================================
 # 📅 功能 2: 每日点名 (Attendance)
@@ -143,7 +188,7 @@ elif menu == "📅 每日点名":
     with col1:
         date = st.date_input("选择日期", datetime.date.today())
     with col2:
-        selected_class = st.selectbox("选择班级", ["1A", "1B", "1C", "1D", "2A", "2B", "3A", "3B", "4A", "4B", "5A", "5B", "6A", "6B"])
+        selected_class = st.selectbox("选择班级", ["1A", "2A", "3A", "4A", "5A", "6A"])
     
     if st.button("列出学生名单"):
         df = load_data()
@@ -197,7 +242,7 @@ elif menu == "➕ 录入新学生":
                 dob = st.date_input("出生日期")
             with col2:
                 name_cn = st.text_input("中文姓名")
-                cls = st.selectbox("班级", ["1A", "1B", "1C", "1D", "2A", "2B", "3A", "3B", "4A", "4B", "5A", "5B", "6A", "6B"])
+                cls = st.selectbox("班级", ["1A", "2A", "3A", "4A", "5A", "6A"])
                 gender = st.radio("性别", ["男", "女"], horizontal=True)
 
             st.subheader("背景资料")
