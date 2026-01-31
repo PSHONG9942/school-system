@@ -179,50 +179,108 @@ if menu == "📊 学生列表":
             )
 
 # ==========================================
-# 📅 功能 2: 每日点名 (Attendance)
+# 📅 功能 2: 智能每日点名 (Excel 模式)
 # ==========================================
 elif menu == "📅 每日点名":
     st.title("📅 每日出席记录")
     
+    # 1. 顶部选择器
     col1, col2 = st.columns(2)
     with col1:
         date = st.date_input("选择日期", datetime.date.today())
     with col2:
+        # 这里保留了我们之前约定的 A 班制
         selected_class = st.selectbox("选择班级", ["1A", "2A", "3A", "4A", "5A", "6A"])
     
-    if st.button("列出学生名单"):
+    st.divider()
+
+    # 2. 加载数据
+    if st.button("🚀 开始点名", type="primary"):
+        st.session_state['attendance_loaded'] = True
+    
+    # 使用 session_state 防止刷新后表格消失
+    if st.session_state.get('attendance_loaded'):
         df = load_data()
-        # 筛选出该班级的学生
         class_students = df[df['班级'] == selected_class]
         
         if class_students.empty:
-            st.warning(f"{selected_class} 还没有学生资料。")
+            st.warning(f"⚠️ {selected_class} 还没有学生资料，请先去录入。")
         else:
-            st.subheader(f"{selected_class} 学生名单 ({len(class_students)}人)")
-            
-            with st.form("attendance_form"):
-                # 创建一个字典来存 checkbox 的状态
-                status_dict = {}
-                st.table(class_students[['学生姓名', '身份证/MyKid']])
-                
-                st.markdown("### 缺席勾选 (Tick if Absent)")
-                # 使用多选框来选缺席的人 (比较快)
-                absent_students = st.multiselect("请选择 **缺席** 的学生:", class_students['学生姓名'].tolist())
-                
-                remark = st.text_input("备注 (例如: 全班去旅行)")
-                
-                if st.form_submit_button("💾 提交出席率"):
-                    with st.spinner("正在保存到 attendance 表格..."):
-                        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        rows_to_add = []
+            st.subheader(f"📋 {selected_class} 点名表")
+            st.caption("💡 提示：所有学生默认为【出席】，直接在表格里修改缺席学生的状态即可。")
+
+            # --- A. 准备点名表格数据 ---
+            # 只取姓名和IC，防止无关信息干扰
+            attendance_df = class_students[['学生姓名', '身份证/MyKid']].copy()
+            # 核心魔法：增加两列，默认设为 "出席" 和 空白
+            attendance_df['当前状态'] = "✅ 出席"
+            attendance_df['缺席备注'] = ""
+
+            # --- B. 显示智能表格 (Data Editor) ---
+            # 这是一个可以编辑的表格！
+            edited_df = st.data_editor(
+                attendance_df,
+                use_container_width=True,
+                hide_index=True,  # 隐藏左边的序号
+                num_rows="fixed", # 禁止添加/删除行，只能改状态
+                column_config={
+                    "学生姓名": st.column_config.TextColumn("学生姓名", disabled=True), # 锁住名字不让改
+                    "身份证/MyKid": st.column_config.TextColumn("身份证/MyKid", disabled=True),
+                    
+                    # ✨ 重点：把“当前状态”变成下拉菜单 ✨
+                    "当前状态": st.column_config.SelectboxColumn(
+                        "出席状态 (点击修改)",
+                        help="请选择缺席原因",
+                        width="medium",
+                        options=[
+                            "✅ 出席",
+                            "😷 病假 (Sakit)",
+                            "🏠 事假 (Urusan Keluarga)",
+                            "❌ 旷课 (Ponteng)",
+                            "📝 迟到 (Lewat)",
+                            "🏫 代表学校 (Wakil Sekolah)",
+                            "❓ 其他 (Lain-lain)"
+                        ],
+                        required=True
+                    ),
+                    "缺席备注": st.column_config.TextColumn(
+                        "备注 (如有)",
+                        help="例如：发烧、回乡、车坏...",
+                        width="large"
+                    )
+                }
+            )
+
+            # --- C. 保存按钮 ---
+            st.markdown("---")
+            if st.button("💾 提交今日记录", use_container_width=True):
+                with st.spinner("正在写入云端数据库..."):
+                    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    rows_to_add = []
+                    
+                    # 遍历刚才编辑过的表格 (edited_df)
+                    for index, row in edited_df.iterrows():
+                        status = row['当前状态']
                         
-                        for student in class_students['学生姓名']:
-                            status = "缺席" if student in absent_students else "出席"
-                            # 数据格式: 日期 | 班级 | 姓名 | 状态 | 时间
-                            rows_to_add.append([str(date), selected_class, student, status, timestamp])
+                        # 只有当状态不是“出席”时，才视为有记录需要特别关注
+                        # 但为了记录完整性，我们通常把全班都存进去，方便算出席率
                         
-                        att_sheet.append_rows(rows_to_add)
-                        st.success(f"✅ 已保存 {selected_class} 的点名记录！")
+                        # 数据格式: 日期 | 班级 | 姓名 | 状态 | 备注 | 记录时间
+                        # (注意：我们在 Excel 也要多加一列“备注”)
+                        rows_to_add.append([
+                            str(date), 
+                            selected_class, 
+                            row['学生姓名'], 
+                            status,          # 这里会保存 "😷 病假 (Sakit)" 这种详细原因
+                            row['缺席备注'], # 具体的备注内容
+                            timestamp
+                        ])
+                    
+                    # 写入 Google Sheet 的 attendance 分页
+                    att_sheet.append_rows(rows_to_add)
+                    st.success(f"✅ {selected_class} 点名完成！已保存 {len(rows_to_add)} 条记录。")
+                    st.balloons()
+                    # 可以在这里加个清除 session 的操作让表格重置，看你习惯
 
 # === 功能 B: 录入新学生 (修复版) ===
 elif menu == "➕ 录入新学生":
