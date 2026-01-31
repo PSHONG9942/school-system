@@ -93,24 +93,38 @@ def generate_pdf(student_data):
 
 # --- 4. 关键变量与回调函数 ---
 
-# 🌟 1. 定义【清空表单】的回调函数 (独立且坚固)
+# 🌟 2. 定义【清空表单】的回调函数 (强制归零版)
 def clear_form_callback():
-    # 为了防止作用域问题，我们直接在这里定义要清空的 keys
-    keys_to_clear = [
-        "name_en", "mykid", "dob", "name_cn", "cls", "gender",
-        "race", "religion", "nationality", "address",
-        "father_name", "father_job", "father_ic", "father_income",
-        "mother_name", "mother_job", "mother_ic", "mother_income",
-        "guardian_phone"
-    ]
-    
-    # 暴力清空：只要 session_state 里有这些 key，统统删掉
-    for key in keys_to_clear:
-        if key in st.session_state:
-            del st.session_state[key]
-            
-    # 这是一个右下角的小弹窗，证明函数运行了
-    st.toast("🧹 表单已清空，请录入下一位！", icon="✅")
+    # 1. 文本框 -> 强制设为空
+    st.session_state["name_en"] = ""
+    st.session_state["mykid"] = ""
+    st.session_state["name_cn"] = ""
+    st.session_state["address"] = ""
+    st.session_state["guardian_phone"] = ""
+    st.session_state["father_name"] = ""
+    st.session_state["father_ic"] = ""
+    st.session_state["mother_name"] = ""
+    st.session_state["mother_ic"] = ""
+
+    # 2. 数字框 -> 强制设为 0
+    st.session_state["father_income"] = 0
+    st.session_state["mother_income"] = 0
+
+    # 3. 日期 -> 强制设为今天
+    st.session_state["dob"] = datetime.date.today()
+
+    # 4. 选择框 -> 强制设为第一个选项 (默认值)
+    # 注意：这里的值必须和你 Selectbox 里的第一个选项字一模一样！
+    st.session_state["cls"] = "1A"
+    st.session_state["gender"] = "男"
+    st.session_state["race"] = "华裔"
+    st.session_state["religion"] = "佛教"
+    st.session_state["nationality"] = "马来西亚公民"
+    st.session_state["father_job"] = "公务员"
+    st.session_state["mother_job"] = "公务员"
+
+    # 提示
+    st.toast("🧹 表单已彻底清空，请录入下一位！", icon="✅")
 
 # 🌟 2. 定义【编辑跳转】的回调函数
 def edit_student_callback(row):
