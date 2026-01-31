@@ -6,7 +6,7 @@ from fpdf import FPDF
 import datetime
 
 # --- 1. 页面配置 ---
-st.set_page_config(page_title="木威培青华小校务系统", layout="wide", page_icon="🏫")
+st.set_page_config(page_title="SJK(C) 旗舰校务系统", layout="wide", page_icon="🏫")
 
 # --- 2. 连接 Google Sheets ---
 @st.cache_resource
@@ -93,24 +93,29 @@ def generate_pdf(student_data):
 
 # --- 4. 关键变量与回调函数 ---
 
-# 🌟 1. 将 input_keys 放到全局，方便所有函数调用
-input_keys = [
-    "name_en", "mykid", "dob", "name_cn", "cls", "gender",
-    "race", "religion", "nationality", "address",
-    "father_name", "father_job", "father_ic", "father_income",
-    "mother_name", "mother_job", "mother_ic", "mother_income",
-    "guardian_phone"
-]
-
-# 🌟 2. 定义【清空表单】的回调函数
+# 🌟 1. 定义【清空表单】的回调函数 (独立且坚固)
 def clear_form_callback():
-    for key in input_keys:
+    # 为了防止作用域问题，我们直接在这里定义要清空的 keys
+    keys_to_clear = [
+        "name_en", "mykid", "dob", "name_cn", "cls", "gender",
+        "race", "religion", "nationality", "address",
+        "father_name", "father_job", "father_ic", "father_income",
+        "mother_name", "mother_job", "mother_ic", "mother_income",
+        "guardian_phone"
+    ]
+    
+    # 暴力清空：只要 session_state 里有这些 key，统统删掉
+    for key in keys_to_clear:
         if key in st.session_state:
             del st.session_state[key]
+            
+    # 这是一个右下角的小弹窗，证明函数运行了
+    st.toast("🧹 表单已清空，请录入下一位！", icon="✅")
 
-# 🌟 3. 定义【编辑跳转】的回调函数
+# 🌟 2. 定义【编辑跳转】的回调函数
 def edit_student_callback(row):
     st.session_state["menu_nav"] = "➕ 录入新学生"
+    # 逐一填入数据
     st.session_state['name_en'] = row['学生姓名']
     st.session_state['name_cn'] = row['中文姓名']
     st.session_state['cls'] = row['班级']
@@ -141,6 +146,7 @@ with st.sidebar:
     if "menu_nav" not in st.session_state:
         st.session_state["menu_nav"] = "📊 学生列表"
 
+    # 使用 session_state 来控制菜单选中项
     menu = st.radio(
         "系统菜单", 
         ["📊 学生列表", "📅 每日点名", "➕ 录入新学生", "🔍 查询与打印"],
@@ -269,7 +275,7 @@ elif menu == "➕ 录入新学生":
     with c1:
         st.info("💾 保存后表单【不会】自动清空。如需录入下一位，请点击右侧按钮。")
     with c2:
-        # 🟢 这里的按钮现在绑定了回调函数，点击后 100% 会清空表单
+        # 🟢 按钮绑定 on_click 回调，确保清空
         st.button("🆕 新增学生 (清空)", type="secondary", use_container_width=True, on_click=clear_form_callback)
 
     with st.form("add_student_form"):
@@ -351,13 +357,13 @@ elif menu == "➕ 录入新学生":
                             st.success(f"✅ 新增成功：{name_en}")
                         
                         st.cache_data.clear()
-                        # 注意：这里我们故意没有清空表单，保留了输入内容
+                        # 注意：保存后不清空，等待用户点击清空按钮
                         
                     except Exception as e:
                         st.error(f"发生错误: {e}")
 
 # ==========================================
-# 🔍 功能 D: 查询 (只保留查询，打印在列表页)
+# 🔍 功能 D: 查询 (只保留查询)
 # ==========================================
 elif menu == "🔍 查询与打印":
     st.title("🔍 学生档案查询")
