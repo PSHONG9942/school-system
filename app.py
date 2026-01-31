@@ -31,7 +31,7 @@ def get_connection():
     client = gspread.authorize(creds)
     
     # 打开你的表格 (记得确认表格 ID)
-    sheet = client.open_by_key("1yuqfbLmJ_IIfInB_XyKEula17Kyse6FGeqvZgh-Rn94").sheet1
+    sheet = client.open_by_key("1yuqfbLmJ_IIFInB_XyKEula17Kyse6FGeqvZgh-Rn94").sheet1
     return sheet
 
 # 尝试连接，如果连不上（比如表格名字不对）就报错提示
